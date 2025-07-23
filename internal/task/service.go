@@ -2,6 +2,8 @@ package task
 
 import (
 	"fmt"
+	"net/url"
+	"strings"
 
 	"github.com/alexputin/downloader/config"
 )
@@ -29,7 +31,7 @@ func (s *TaskService) CreateTask() (*Task, error) {
 	return &task, err
 }
 
-func (s *TaskService) AddFile(taskId, url string) (*Task, error) {
+func (s *TaskService) AddFile(taskId, fileUrl string) (*Task, error) {
 	task, err := s.tr.Get(taskId)
 	if err != nil {
 		return &Task{}, fmt.Errorf("add file to task failed: %w", err)
@@ -39,11 +41,20 @@ func (s *TaskService) AddFile(taskId, url string) (*Task, error) {
 		return &Task{}, fmt.Errorf("task already done")
 	}
 
+	isSupportedFile, err := s.hasSupportedExtension(fileUrl)
+	if err != nil {
+		return &Task{}, err
+	}
+
+	if !isSupportedFile {
+		return &Task{}, fmt.Errorf("invalid file extension")
+	}
+
 	if len(task.Files) >= s.cfg.Service.MaxFilesPerTask {
 		return &Task{}, fmt.Errorf("max allowed files per task")
 	}
 
-	task, err = s.tr.AddFile(taskId, url)
+	task, err = s.tr.AddFile(taskId, fileUrl)
 	if err != nil {
 		return &Task{}, fmt.Errorf("file not added: %w", err)
 	}
@@ -62,4 +73,19 @@ func (s *TaskService) GetTask(taskId string) (*Task, error) {
 	}
 
 	return &task, nil
+}
+
+func (s *TaskService) hasSupportedExtension(fileUrl string) (bool, error) {
+	parsedURL, err := url.Parse(fileUrl)
+	if err != nil {
+		return false, fmt.Errorf("invalid url")
+	}
+
+	for _, extension := range s.cfg.Service.AllowedExtensions {
+		if strings.HasSuffix(parsedURL.Path, extension) {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
