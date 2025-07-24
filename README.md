@@ -74,7 +74,7 @@ go run .\cmd\api\main.go
 }
 ```
 
-### GET /archive/:id
+### GET `/archive/:id`
 Скачать архив с файлами задачи.
 - Ответ: файл-архив (application/octet-stream).
 
