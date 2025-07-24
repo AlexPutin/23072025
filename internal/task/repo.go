@@ -34,7 +34,7 @@ func (r *InMemoryTaskRepository) Get(id string) (Task, error) {
 	return r.internalGet(id)
 }
 
-func (r *InMemoryTaskRepository) AddFile(taskId string, url string) (Task, error) {
+func (r *InMemoryTaskRepository) AddFile(taskId string, file File) (Task, error) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
@@ -42,11 +42,38 @@ func (r *InMemoryTaskRepository) AddFile(taskId string, url string) (Task, error
 	if err != nil {
 		return Task{}, err
 	}
-	file := File{URL: url}
 	task.AddFile(file)
 
 	r.table[taskId] = task
 	return task, nil
+}
+
+func (r *InMemoryTaskRepository) Update(task *Task) (Task, error) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	id := task.Id.String()
+	tsk, err := r.internalGet(id)
+	if err != nil {
+		return Task{}, err
+	}
+
+	r.table[id] = *task
+	return tsk, nil
+}
+
+func (r *InMemoryTaskRepository) GetActiveTaskCount() int {
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+
+	result := 0
+	for _, value := range r.table {
+		if value.Status == StatusCreated || value.Status == StatusProcessing {
+			result += 1
+		}
+	}
+
+	return result
 }
 
 func (r *InMemoryTaskRepository) internalGet(id string) (Task, error) {

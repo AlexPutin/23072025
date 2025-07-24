@@ -2,31 +2,42 @@ package task
 
 import (
 	"fmt"
-	"net/url"
-	"strings"
+	"slices"
 
 	"github.com/alexputin/downloader/config"
+	"github.com/alexputin/downloader/internal/utils"
 )
 
 type TaskRepository interface {
 	Create() (Task, error)
 	Get(id string) (Task, error)
-	AddFile(taskId string, url string) (Task, error)
+	AddFile(taskId string, file File) (Task, error)
+	Update(task *Task) (Task, error)
+	GetActiveTaskCount() int
+}
+
+type TaskDownloadService interface {
+	StartProcess(task *Task) (*Task, error)
 }
 
 type TaskService struct {
 	tr  TaskRepository
+	dl  TaskDownloadService
 	cfg *config.Config
 }
 
-func NewTaskService(repo TaskRepository, config *config.Config) *TaskService {
+func NewTaskService(repo TaskRepository, downloader TaskDownloadService, config *config.Config) *TaskService {
 	return &TaskService{
 		tr:  repo,
+		dl:  downloader,
 		cfg: config,
 	}
 }
 
 func (s *TaskService) CreateTask() (*Task, error) {
+	if s.tr.GetActiveTaskCount() >= s.cfg.Service.MaxActiveTasks {
+		return &Task{}, fmt.Errorf("to many active tasks")
+	}
 	task, err := s.tr.Create()
 	return &task, err
 }
@@ -41,11 +52,12 @@ func (s *TaskService) AddFile(taskId, fileUrl string) (*Task, error) {
 		return &Task{}, fmt.Errorf("task already done")
 	}
 
-	isSupportedFile, err := s.hasSupportedExtension(fileUrl)
+	extension, err := utils.GetUrlExtension(fileUrl)
 	if err != nil {
-		return &Task{}, err
+		return &Task{}, fmt.Errorf("invalid url")
 	}
 
+	isSupportedFile := s.hasSupportedExtension(extension)
 	if !isSupportedFile {
 		return &Task{}, fmt.Errorf("invalid file extension")
 	}
@@ -54,13 +66,16 @@ func (s *TaskService) AddFile(taskId, fileUrl string) (*Task, error) {
 		return &Task{}, fmt.Errorf("max allowed files per task")
 	}
 
-	task, err = s.tr.AddFile(taskId, fileUrl)
+	task, err = s.tr.AddFile(taskId, File{
+		URL: fileUrl,
+	})
+
 	if err != nil {
 		return &Task{}, fmt.Errorf("file not added: %w", err)
 	}
 
 	if len(task.Files) == s.cfg.Service.MaxFilesPerTask {
-		// TODO: add processing service call
+		return s.dl.StartProcess(&task)
 	}
 
 	return &task, err
@@ -75,17 +90,6 @@ func (s *TaskService) GetTask(taskId string) (*Task, error) {
 	return &task, nil
 }
 
-func (s *TaskService) hasSupportedExtension(fileUrl string) (bool, error) {
-	parsedURL, err := url.Parse(fileUrl)
-	if err != nil {
-		return false, fmt.Errorf("invalid url")
-	}
-
-	for _, extension := range s.cfg.Service.AllowedExtensions {
-		if strings.HasSuffix(parsedURL.Path, extension) {
-			return true, nil
-		}
-	}
-
-	return false, nil
+func (s *TaskService) hasSupportedExtension(extension string) bool {
+	return slices.Contains(s.cfg.Service.AllowedExtensions, extension)
 }
